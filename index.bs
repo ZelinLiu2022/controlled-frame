@@ -91,6 +91,7 @@ th, td {
 </pre>
 
 <pre class="anchors">
+
 spec: console; urlPrefix: https://console.spec.whatwg.org/
     type: dfn
         urlPrefix: /
@@ -100,6 +101,7 @@ spec: html; urlPrefix: https://html.spec.whatwg.org/multipage/
     type: dfn
         urlPrefix: /
             text: simple-dialogs; for: /; url: simple-dialogs
+            text: window open steps; for: /; url: window-open-steps
         urlPrefix: browsing-the-web.html
             text: apply the traverse history step; url: apply-the-traverse-history-step
             text: document state; url: she-document-state
@@ -114,6 +116,7 @@ spec: html; urlPrefix: https://html.spec.whatwg.org/multipage/
         urlPrefix: document-sequences.html
             text: browsing context group; url: browsing-context-group
             text: create a new browsing context and document; url: creating-a-new-browsing-context
+            text: creating a new auxiliary browsing context; url: creating-a-new-auxiliary-browsing-context
             text: current session history entry; url: nav-current-history-entry
             text: navigable; for: /; url: navigable
             text: initialize the navigable; url: initialize-the-navigable
@@ -1166,7 +1169,7 @@ dictionary ConsoleMessageEventInit: EventInit {
 
 To fire a {{ConsoleMessageEvent}} |e| given <{controlledframe}> element |target| and the [=Printer=](|logLevel|, |args|[, options]) method arguments.
 
-1. Let |consoleMessage| be a new ConsoleMessage object.
+1. Let |consoleMessage| be a new {{ConsoleMessage}} object.
 
 1. Set the following fields of |consoleMessage|:
 
@@ -1190,6 +1193,12 @@ To fire a {{ConsoleMessageEvent}} |e| given <{controlledframe}> element |target|
 
 <xmp class="idl">
 
+enum DialogType {
+  "alert",
+  "confirm",
+  "prompt"
+};
+
 [Exposed=Window, IsolatedContext]
 interface DialogController {
   undefined okay(optional DOMString response);
@@ -1198,7 +1207,7 @@ interface DialogController {
 
 [Exposed=Window, IsolatedContext]
 interface DialogMessage {
-  readonly attribute DOMString messageType;
+  readonly attribute DialogType messageType;
   readonly attribute DOMString messageText;
   readonly attribute DialogController dialogController;
 };
@@ -1219,12 +1228,12 @@ dictionary DialogEventInit: EventInit {
 
 To fire a {{DialogEvent}} |e| given <{controlledframe}> element |target|, [=simple-dialogs=] type |dialogType|, and message |message|.
 
-1. Let |dialogMessage| be a new DialogMessage object.
+1. Let |dialogMessage| be a new {{DialogMessage}} object.
 
 1. Set the following fields of |dialogMessage|:
 
       : {{DialogMessage/messageType}}
-      :: |dialogType|, one of "alert", "confirm", or "prompt".
+      :: |dialogType|.
 
       : {{DialogMessage/messageText}}
       :: |message|.
@@ -1243,6 +1252,16 @@ To fire a {{DialogEvent}} |e| given <{controlledframe}> element |target|, [=simp
 
 <xmp class="idl">
 
+enum WindowOpenDisposition {
+  "ignore",
+  "save_to_disk",
+  "current_tab",
+  "new_background_tab",
+  "new_foreground_tab",
+  "new_window",
+  "new_popup"
+};
+
 [Exposed=Window, IsolatedContext]
 interface NewWindowController {
   undefined attach(HTMLControlledFrameElement controlledFrame);
@@ -1253,10 +1272,8 @@ interface NewWindowController {
 interface NewWindow {
   readonly attribute NewWindowController window;
   readonly attribute USVString targetUrl;
-  readonly attribute DOMString initialWidth;
-  readonly attribute DOMString initialHeight;
   readonly attribute DOMString name;
-  readonly attribute DOMString windowOpenDisposition;
+  readonly attribute WindowOpenDisposition windowOpenDisposition;
 };
 
 [Exposed=Window, IsolatedContext]
@@ -1273,7 +1290,27 @@ dictionary NewWindowEventInit: EventInit {
 
 <div algorithm=dispatch-newwindow>
 
-<span class=XXX>TODO:.</span>
+To fire a {{NewWindowEvent}} |e| given <{controlledframe}> element |target|, string |url| (input of [=window open steps=]), string |target| (input of [=window open steps=]), and WindowOpenDisposition |windowOpenDisposition|.
+
+1. Let |newWindow| be a new {{NewWindow}} object.
+
+1. Set the following fields of |newWindow|:
+
+      : {{NewWindow/targetUrl}}
+      :: |url|
+
+      : {{NewWindow/name}}
+      :: |target|.
+
+      : {{NewWindow/windowOpenDisposition}}
+      :: |windowOpenDisposition|
+
+
+1. Set |e|'s {{NewWindowEvent/newWindow}} to |newWindow|.
+
+1. Dispatch |e| at |target|.
+
+<span class=XXX>TODO: monkey patch [=window open steps=], also include "how to determine window open disposition"</span>
 
 </div>
 
@@ -1283,6 +1320,16 @@ dictionary NewWindowEventInit: EventInit {
 
 <xmp class="idl">
 
+enum PermissionType {
+  "media",
+  "geolocation",
+  "pointerLock",
+  "download",
+  "filesystem",
+  "fullscreen",
+  "hid"
+};
+
 [Exposed=Window, IsolatedContext]
 interface PermissionRequestControllerBase {
   undefined allow();
@@ -1290,8 +1337,46 @@ interface PermissionRequestControllerBase {
 };
 
 [Exposed=Window, IsolatedContext]
+interface MediaPermissionRequestController : PermissionRequestControllerBase {
+  USVString url;
+};
+
+[Exposed=Window, IsolatedContext]
+interface GeolocationPermissionRequestController : PermissionRequestControllerBase {
+  USVString url;
+};
+
+[Exposed=Window, IsolatedContext]
+interface PointerLockPermissionRequestController : PermissionRequestControllerBase {
+  boolean lastUnlockedBySelf;
+  boolean userGesture;
+  USVString url;
+};
+
+[Exposed=Window, IsolatedContext]
+interface DownloadPermissionRequestController : PermissionRequestControllerBase {
+  DOMString requestMethod;
+  USVString url;
+};
+
+[Exposed=Window, IsolatedContext]
+interface FileSystemPermissionRequestController : PermissionRequestControllerBase {
+  USVString url;
+};
+
+[Exposed=Window, IsolatedContext]
+interface FullscreenPermissionRequestController : PermissionRequestControllerBase {
+  USVString origin;
+};
+
+[Exposed=Window, IsolatedContext]
+interface HidPermissionRequestController : PermissionRequestControllerBase {
+  USVString url;
+};
+
+[Exposed=Window, IsolatedContext]
 interface PermissionRequest {
-  readonly attribute DOMString permission;
+  readonly attribute PermissionType permission;
   readonly attribute PermissionRequestControllerBase request;
 };
 
@@ -1309,7 +1394,31 @@ dictionary PermissionRequestEventInit: EventInit {
 
 <div algorithm=dispatch-permissionrequest>
 
-<span class=XXX>TODO: Different child interfaces of PermissionRequestControllerBase for different permissions</span>
+To fire a {{PermissionRequestEvent}} |e| given <{controlledframe}> element |target|, PermissionType |type|.
+
+1. Let |permissionRequest| be a new {{PermissionRequest}} object.
+
+1. If |type| is "geolocation":
+
+    1. Let |geolocationPermissionRequestController| be a new {{GeolocationPermissionRequestController}}.
+
+1. Set the following fields of |permissionRequest|:
+
+      : {{NewWindow/targetUrl}}
+      :: |url|
+
+      : {{NewWindow/name}}
+      :: |target|.
+
+      : {{NewWindow/windowOpenDisposition}}
+      :: |windowOpenDisposition|
+
+
+1. Set |e|'s {{NewWindowEvent/newWindow}} to |newWindow|.
+
+1. Dispatch |e| at |target|.
+
+<span class=XXX>TODO: monkey patch [=window open steps=], also include "how to determine window open disposition"</span>
 
 </div>
 
@@ -1394,7 +1503,7 @@ dictionary ContentLoadEventInit: EventInit {
 <div algorithm=dispatch-contentload>
 
 <span class=XXX>TODO:</span>
-
+https://html.spec.whatwg.org/multipage/document-lifecycle.html#loading-documents
 </div>
 
 <!-- ====================================================================== -->
@@ -2360,7 +2469,7 @@ Each {{WebRequestEvent}} has:
           equal to false.
 
       1. Set |handler|'s {{WebRequestErrorOccurredDetails/error}} field to an
-          implementation-defined error message describing the error in
+          [=implementation-defined=] error message describing the error in
           |response|.
 
       1. Call |handler|[[=WebRequest handler config/handler=]] given |details|
