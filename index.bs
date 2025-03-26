@@ -96,6 +96,8 @@ spec: console; urlPrefix: https://console.spec.whatwg.org/
     type: dfn
         urlPrefix: /
             text: printer; for: /; url: printer
+            text: logger; for: /; url: logger
+            text: formatter; for: /; url: formatter
 
 spec: html; urlPrefix: https://html.spec.whatwg.org/multipage/
     type: dfn
@@ -113,6 +115,7 @@ spec: html; urlPrefix: https://html.spec.whatwg.org/multipage/
         urlPrefix: document-lifecycle.html
             text: completely loaded; url: completely-loaded
             text: stop loading; url: nav-stop
+            text: completely finish loading; url: completely finish loading
         urlPrefix: document-sequences.html
             text: browsing context group; url: browsing-context-group
             text: create a new browsing context and document; url: creating-a-new-browsing-context
@@ -139,10 +142,16 @@ spec: html; urlPrefix: https://html.spec.whatwg.org/multipage/
         urlPrefix: embedded-content-other.html
             text: width; url: attr-dim-width
             text: height; url: attr-dim-height
+        urlPrefix: indices.html
+            text: load; url: event-load
         urlPrefix: links.html
             text: href; url: attr-hyperlink-href
         urlPrefix: nav-history-apis.html
             text: navigable; for: window; url: window-navigable
+        urlPrefix: timers-and-user-prompts.html
+            text: alert; url:dom-alert
+            text: confirm; url:dom-confirm
+            text: prompt; url:dom-prompt
         urlPrefix: webappapis.html
             text: environment; url: environment
 
@@ -1131,15 +1140,25 @@ The UI-change events:
 
 The navigation events:
 
-- {{oncontentload}}
+- {{oncontentload}} - fired when the {{Window}} associated with [=embedded navigable=] fires a [=load=] event.
 
-- {{onloadabort}}
+- {{onloadabort}} - fired when a load has aborted without commiting.
 
-- {{onloadcommit}}
+- {{onloadcommit}} - fired when load has commited. This includes navigation within the current document as well as subframe document-level loads
 
-- {{onloadstart}}
+- {{onloadstart}} - fired when navigation start (including subframe navigation), but not same document navigation.
 
-- {{onloadstop}}
+- {{onloadstop}} - fired when all pending load finishes(either commit or abort). If new navigation starts after, loadstop may fire again.
+
+Each {{HTMLControlledFrameElement}} has a <dfn>load counter</dfn> which is a number that is initially zero.
+
+Each time a {{onloadstart}} event fires, [=load counter=] increases by 1.
+
+Each time a {{onloadabort}} event fires, [=load counter=] decreses by 1.
+
+Each time a {{onloadcommit}} event fires, [=load counter=] decreses by 1.
+
+When [=load counter=] changes from a non-zero number to 0, [=fire a "loadstop" event=].
 
 <!-- ====================================================================== -->
 ### consolemessage ### {#event-consolemessage}
@@ -1167,7 +1186,7 @@ dictionary ConsoleMessageEventInit: EventInit {
 
 <div algorithm=dispatch-consolemessage>
 
-To fire a {{ConsoleMessageEvent}} |e| given <{controlledframe}> element |target| and the [=Printer=](|logLevel|, |args|[, options]) method arguments.
+To <dfn data-lt='fire a "consolemessage" event'>fire a {{ConsoleMessageEvent}}</dfn> |e| given <{controlledframe}> element |target|, a long |logLevel| and a DOMString |message|, run the following steps:
 
 1. Let |consoleMessage| be a new {{ConsoleMessage}} object.
 
@@ -1177,13 +1196,11 @@ To fire a {{ConsoleMessageEvent}} |e| given <{controlledframe}> element |target|
       :: |logLevel|.
 
       : {{ConsoleMessage/message}}
-      :: The result of [=implementation-defined=] formatting to |args|.
+      :: |message|.
 
 1. Set |e|'s {{ConsoleMessageEvent/consoleMessage}} to |consoleMessage|.
 
 1. Dispatch |e| at |target|.
-
-<span class=XXX>TODO: monkey patch console [=Printer=].</span>
 
 </div>
 
@@ -1209,26 +1226,55 @@ interface DialogController {
 interface DialogMessage {
   readonly attribute DialogType messageType;
   readonly attribute DOMString messageText;
-  readonly attribute DialogController dialogController;
+  readonly attribute DialogController dialog;
 };
 
 [Exposed=Window, IsolatedContext]
 interface DialogEvent : Event {
   constructor(DOMString type, optional DialogEventInit eventInitDict = {});
   readonly attribute DialogMessage dialogMessage;
+
+  readonly attribute boolean accept;
+  readonly attribute DOMString response;
 };
 
 dictionary DialogEventInit: EventInit {
   DialogMessage? dialogMessage;
+  boolean accept = false;
+  DOMString response = "";
 };
 
 </xmp>
 
+{{DialogEvent}} exposes its attributes {{DialogEvent/accept}} and {{DialogEvent/response}}. {{DialogController}} is constructed with writable references to the exposed attributes
+
+<div>
+
+The <dfn method for=DialogController>okay(|response|)</dfn> method steps are:
+
+1. Set {{DialogEvent/accept}} to true.
+
+1. Set {{DialogEvent/response}} to |response|.
+
+</div>
+
+<div>
+
+The <dfn method for=DialogController>cancel()</dfn> method steps are:
+
+1. Set {{DialogEvent/accept}} to false.
+
+</div>
+
 <div algorithm=dispatch-dialog>
 
-To fire a {{DialogEvent}} |e| given <{controlledframe}> element |target|, [=simple-dialogs=] type |dialogType|, and message |message|.
+To <dfn data-lt='fire a "dialog" event'>fire a {{DialogEvent}}</dfn> |e| given <{controlledframe}> element |target|, [=simple-dialogs=] type |dialogType|, and message |message|, run the following steps:
+
+1. Assert that |e|["{{DialogEvent/accept}}"] equals false.
 
 1. Let |dialogMessage| be a new {{DialogMessage}} object.
+
+1. Let |dialog| be a new {{DialogController}} object that is exposed to |e|'s {{DialogEvent/accept}} and {{DialogEvent/response}}.
 
 1. Set the following fields of |dialogMessage|:
 
@@ -1238,11 +1284,14 @@ To fire a {{DialogEvent}} |e| given <{controlledframe}> element |target|, [=simp
       : {{DialogMessage/messageText}}
       :: |message|.
 
+      : {{DialogMessage/dialog}}
+      :: |dialog|.
+
 1. Set |e|'s {{DialogEvent/dialogMessage}} to |dialogMessage|.
 
 1. Dispatch |e| at |target|.
 
-<span class=XXX>TODO: monkey patch [=simple-dialogs=].</span>
+1. Return |e|["{{DialogEvent/accept}}"] and |e|["{{DialogEvent/response}}"].
 
 </div>
 
@@ -1288,9 +1337,27 @@ dictionary NewWindowEventInit: EventInit {
 
 </xmp>
 
+{{NewWindow}} exposes its {{NewWindow/targetUrl}} to {{NewWindow/window}}. {{NewWindowController}} can access reference to {{NewWindow/targetUrl}}.
+
+<div>
+
+The <dfn method for=NewWindowController>attach(|controlledFrame|)</dfn> method steps are:
+
+      1. Set |controlledFrame|'s {{HTMLControlledFrameElement/src}} to {{NewWindow/targetUrl}}.
+
+</div>
+
+<div>
+
+The <dfn method for=NewWindowController>discard()</dfn> method steps are:
+
+1. Do nothing.
+
+</div>
+
 <div algorithm=dispatch-newwindow>
 
-To fire a {{NewWindowEvent}} |e| given <{controlledframe}> element |target|, string |url| (input of [=window open steps=]), string |target| (input of [=window open steps=]), and WindowOpenDisposition |windowOpenDisposition|.
+To <dfn data-lt='fire a "newwindow" event'>fire a {{NewWindowEvent}}</dfn> |e| given <{controlledframe}> element |target|, string |url| (input of [=window open steps=]), string |target| (input of [=window open steps=]), and WindowOpenDisposition |windowOpenDisposition|, run the following steps:
 
 1. Let |newWindow| be a new {{NewWindow}} object.
 
@@ -1310,7 +1377,13 @@ To fire a {{NewWindowEvent}} |e| given <{controlledframe}> element |target|, str
 
 1. Dispatch |e| at |target|.
 
-<span class=XXX>TODO: monkey patch [=window open steps=], also include "how to determine window open disposition"</span>
+</div>
+
+<div>
+
+To <dfn>get window open disposition</dfn> given [=/document=]<var ignore=''>sourceDocument</var>, a DOMString <var ignore=''>target</var>, and an [=map=]<var ignore=''>tokenizedFeatures</var>, run the following steps:
+
+<span class=XXX>TODO: define how we {{WindowOpenDisposition}}</span>
 
 </div>
 
@@ -1327,7 +1400,7 @@ enum PermissionType {
   "download",
   "filesystem",
   "fullscreen",
-  "hid"
+  "hid",
 };
 
 [Exposed=Window, IsolatedContext]
@@ -1337,41 +1410,41 @@ interface PermissionRequestControllerBase {
 };
 
 [Exposed=Window, IsolatedContext]
-interface MediaPermissionRequestController : PermissionRequestControllerBase {
-  USVString url;
+interface MediaPermissionRequestController: PermissionRequestControllerBase {
+  readonly attribute USVString url;
 };
 
 [Exposed=Window, IsolatedContext]
-interface GeolocationPermissionRequestController : PermissionRequestControllerBase {
-  USVString url;
+interface GeolocationPermissionRequestController: PermissionRequestControllerBase {
+  readonly attribute USVString url;
 };
 
 [Exposed=Window, IsolatedContext]
-interface PointerLockPermissionRequestController : PermissionRequestControllerBase {
-  boolean lastUnlockedBySelf;
-  boolean userGesture;
-  USVString url;
+interface PointerLockPermissionRequestController: PermissionRequestControllerBase {
+  readonly attribute boolean lastUnlockedBySelf;
+  readonly attribute boolean userGesture;
+  readonly attribute USVString url;
 };
 
 [Exposed=Window, IsolatedContext]
 interface DownloadPermissionRequestController : PermissionRequestControllerBase {
-  DOMString requestMethod;
-  USVString url;
+  readonly attribute DOMString requestMethod;
+  readonly attribute USVString url;
 };
 
 [Exposed=Window, IsolatedContext]
 interface FileSystemPermissionRequestController : PermissionRequestControllerBase {
-  USVString url;
+  readonly attribute USVString url;
 };
 
 [Exposed=Window, IsolatedContext]
 interface FullscreenPermissionRequestController : PermissionRequestControllerBase {
-  USVString origin;
+  readonly attribute USVString origin;
 };
 
 [Exposed=Window, IsolatedContext]
 interface HidPermissionRequestController : PermissionRequestControllerBase {
-  USVString url;
+  readonly attribute USVString url;
 };
 
 [Exposed=Window, IsolatedContext]
@@ -1394,31 +1467,79 @@ dictionary PermissionRequestEventInit: EventInit {
 
 <div algorithm=dispatch-permissionrequest>
 
-To fire a {{PermissionRequestEvent}} |e| given <{controlledframe}> element |target|, PermissionType |type|.
+To fire a {{PermissionRequestEvent}} |e| given <{controlledframe}> element |target|, and PermissionType |type|, run the following steps:
 
 1. Let |permissionRequest| be a new {{PermissionRequest}} object.
 
+1. If |type| is "media":
+
+    1. Let |requestController| be a new {{MediaPermissionRequestController}} with the following attributes:
+
+          : {{MediaPermissionRequestController/url}}
+          :: |url|
+
 1. If |type| is "geolocation":
 
-    1. Let |geolocationPermissionRequestController| be a new {{GeolocationPermissionRequestController}}.
+    1. Let |requestController| be a new {{GeolocationPermissionRequestController}} with the following attributes:
+
+          : {{GeolocationPermissionRequestController/url}}
+          :: |url|
+
+1. If |type| is "pointerLock":
+
+    1. Let |requestController| be a new {{PointerLockPermissionRequestController}} with the following attributes:
+
+          : {{PointerLockPermissionRequestController/lastUnlockedBySelf}}
+          :: ^
+
+          : {{PointerLockPermissionRequestController/userGesture}}
+          :: ^
+
+          : {{PointerLockPermissionRequestController/url}}
+          :: |url|
+
+1. If |type| is "download":
+
+    1. Let |requestController| be a new {{DownloadPermissionRequestController}} with the following attributes:
+
+          : {{DownloadPermissionRequestController/requestMethod}}
+          :: ^
+
+          : {{DownloadPermissionRequestController/url}}
+          :: |url|
+
+1. If |type| is "filesystem":
+
+    1. Let |requestController| be a new {{FileSystemPermissionRequestController}} with the following attributes:
+
+          : {{FileSystemPermissionRequestController/url}}
+          :: |url|
+
+1. If |type| is "fullscreen":
+
+    1. Let |requestController| be a new {{FullscreenPermissionRequestController}} with the following attributes:
+
+          : {{FullscreenPermissionRequestController/origin}}
+          :: ^The origin of the frame inside the webview that initiated the fullscreen request.
+
+1. If |type| is "hid":
+
+    1. Let |requestController| be a new {{HidPermissionRequestController}} with the following attributes:
+
+          : {{HidPermissionRequestController/url}}
+          :: |url|
 
 1. Set the following fields of |permissionRequest|:
 
-      : {{NewWindow/targetUrl}}
-      :: |url|
+      : {{PermissionRequest/request}}
+      :: |requestController|
 
-      : {{NewWindow/name}}
-      :: |target|.
+      : {{PermissionRequest/permission}}
+      :: |type|.
 
-      : {{NewWindow/windowOpenDisposition}}
-      :: |windowOpenDisposition|
-
-
-1. Set |e|'s {{NewWindowEvent/newWindow}} to |newWindow|.
+1. Set |e|'s {{PermissionRequestEvent/permissionRequest}} to |permissionRequest|.
 
 1. Dispatch |e| at |target|.
-
-<span class=XXX>TODO: monkey patch [=window open steps=], also include "how to determine window open disposition"</span>
 
 </div>
 
@@ -1430,10 +1551,10 @@ To fire a {{PermissionRequestEvent}} |e| given <{controlledframe}> element |targ
 
 [Exposed=Window, IsolatedContext]
 interface SizeChange {
-  readonly attribute long oldWidth;
-  readonly attribute long oldHeight;
-  readonly attribute long newWidth;
-  readonly attribute long newHeight;
+  readonly attribute unsigned long oldWidth;
+  readonly attribute unsigned long oldHeight;
+  readonly attribute unsigned long newWidth;
+  readonly attribute unsigned long newHeight;
 };
 
 [Exposed=Window, IsolatedContext]
@@ -1450,7 +1571,27 @@ dictionary SizeChangedEventInit: EventInit {
 
 <div algorithm=dispatch-sizechanged>
 
-<span class=XXX>TODO:</span>
+To fire a {{SizeChangedEvent}} |e| given <{controlledframe}> element |target|, 4 non-negative numbers |oldWidth|, |oldHeight|, |newWidth|, |newHeight|:
+
+1. Let |sizeChange| be a new {{SizeChange}} object.
+
+1. Set the following fields of |sizeChange|:
+
+      : {{SizeChange/oldWidth}}
+      :: |oldWidth|.
+
+      : {{SizeChange/oldHeight}}
+      :: |oldHeight|.
+
+      : {{SizeChange/newWidth}}
+      :: |newWidth|.
+
+      : {{SizeChange/newHeight}}
+      :: |newHeight|.
+
+1. Set |e|'s {{SizeChangedEvent/sizeChange}} to |sizeChange|.
+
+1. Dispatch |e| at |target|.
 
 </div>
 
@@ -1480,7 +1621,21 @@ dictionary ZoomChangeEventInit: EventInit {
 
 <div algorithm=dispatch-zoomchange>
 
-<span class=XXX>TODO:</span>
+To fire a {{ZoomChangeEvent}} |e| given <{controlledframe}> element |target|, 2 float numbers |oldZoomFactor|, |newZoomFactor|:
+
+1. Let |zoomChange| be a new {{ZoomChange}} object.
+
+1. Set the following fields of |zoomChange|:
+
+      : {{ZoomChange/oldZoomFactor}}
+      :: |oldZoomFactor|.
+
+      : {{ZoomChange/newZoomFactor}}
+      :: |newZoomFactor|.
+
+1. Set |e|'s {{ZoomChangeEvent/zoomChange}} to |zoomChange|.
+
+1. Dispatch |e| at |target|.
 
 </div>
 
@@ -1502,8 +1657,12 @@ dictionary ContentLoadEventInit: EventInit {
 
 <div algorithm=dispatch-contentload>
 
-<span class=XXX>TODO:</span>
-https://html.spec.whatwg.org/multipage/document-lifecycle.html#loading-documents
+To <dfn data-lt='fire a "contentload" event'>fire a {{ContentLoadEvent}}</dfn> |e| given <{controlledframe}> element |target|, run the following steps:
+
+1. Dispatch |e| at |target|.
+
+<span class=XXX>TODO:^ https://html.spec.whatwg.org/multipage/document-lifecycle.html#loading-documents</span>
+
 </div>
 
 <!-- ====================================================================== -->
@@ -1538,7 +1697,27 @@ dictionary LoadAbortEventInit: EventInit {
 
 <div algorithm=dispatch-loadabort>
 
-<span class=XXX>TODO:</span>
+To fire a {{LoadAbortEvent}} |e| given <{controlledframe}> element |target|, a USVString |url|, a boolean |isTopLevel|, a long |code|, and a DOMString |reason|, run the following steps:
+
+1. Let |info| be a new {{LoadAbortInfo}} with the following attributes:
+
+      : {{LoadInfo/url}}
+      :: |url|
+
+      : {{LoadInfo/isTopLevel}}
+      :: |isTopLevel|
+
+      : {{LoadAbortInfo/code}}
+      :: |code|
+
+      : {{LoadAbortInfo/reason}}
+      :: |reason|
+
+1. Set |e|'s {{LoadAbortEvent/loadAbortInfo}} to |info|.
+
+1. Dispatch |e| at |target|.
+
+<span class=XXX>TODO:^</span>
 
 </div>
 
@@ -1561,6 +1740,20 @@ dictionary LoadCommitEventInit: EventInit {
 </xmp>
 
 <div algorithm=dispatch-loadcommit>
+
+To fire a {{LoadCommitEvent}} |e| given <{controlledframe}> element |target|, a USVString |url|, and a boolean |isTopLevel|, run the following steps:
+
+1. Let |info| be a new {{LoadInfo}} with the following attributes:
+
+      : {{LoadInfo/url}}
+      :: |url|
+
+      : {{LoadInfo/isTopLevel}}
+      :: |isTopLevel|
+
+1. Set |e|'s {{LoadCommitEvent/loadInfo}} to |info|.
+
+1. Dispatch |e| at |target|.
 
 <span class=XXX>TODO:</span>
 
@@ -1586,6 +1779,20 @@ dictionary LoadStartEventInit: EventInit {
 
 <div algorithm=dispatch-loadstart>
 
+To fire a {{LoadStartEvent}} |e| given <{controlledframe}> element |target|, a USVString |url|, and a boolean |isTopLevel|, run the following steps:
+
+1. Let |info| be a new {{LoadInfo}} with the following attributes:
+
+      : {{LoadInfo/url}}
+      :: |url|
+
+      : {{LoadInfo/isTopLevel}}
+      :: |isTopLevel|
+
+1. Set |e|'s {{LoadStartEvent/loadInfo}} to |info|.
+
+1. Dispatch |e| at |target|.
+
 <span class=XXX>TODO:</span>
 
 </div>
@@ -1608,9 +1815,72 @@ dictionary LoadStopEventInit: EventInit {
 
 <div algorithm=dispatch-loadstop>
 
-<span class=XXX>TODO:</span>
+To <dfn data-lt='fire a "loadstop" event'>fire a {{LoadStopEvent}}</dfn> |e| given <{controlledframe}> element |target|, run the following steps:
+
+1. [=Dispatch=] |e| at |target|.
 
 </div>
+
+<!-- ====================================================================== -->
+### Monkey Patches ### {#events-monkey-patches}
+<!-- ====================================================================== -->
+
+#### [[HTML]] #### {#events-monkey-patches-html}
+
+For [=alert=]:
+
+4. Set |message| to the result of optionally truncating message.
+
+5. <ins>If <var ignore=''>window</var>'s [=Window/navigable=]'s [=embedderParent=] is a {{HTMLControlledFrameElement}}, [=fire a "dialog" event=] with "alert" and |message|, and return.</ins>
+
+For [=confirm=]:
+
+3. Set |message| to the result of optionally truncating message.
+
+4. <ins>If <var ignore=''>window</var>'s [=Window/navigable=]'s [=embedderParent=] is a {{HTMLControlledFrameElement}}, return the first return value of [=fire a "dialog" event=] with "confirm" and |message|.</ins>
+
+For [=prompt=]:
+
+4. Set <var ignore=''>default</var> to the result of optionally truncating default.
+
+5. <ins>If <var ignore=''>window</var>'s [=Window/navigable=]'s [=embedderParent=] is a {{HTMLControlledFrameElement}}:
+      
+      1. <ins>Let [|accept|, |response|] be the result of [=fire a "dialog" event=] with "prompt" and |message|.</ins>
+      
+      1. If |accept| equals false, return null.
+
+      1. Return |response|. 
+
+For [=window open steps=]:
+
+14. If targetNavigable is null, then return null.
+
+15. <ins>Let |embedderParent| be <var ignore=''>sourceDocument</var>'s [=embedderParent=].</ins>
+
+16. <ins>If |embedderParent| is a {{HTMLControlledFrameElement}}:</ins>
+
+      1. <ins>Let |windowOpenDisposition| be the result of [=get window open disposition=] ^</ins>
+      
+      1. <ins>[=Fire a "newwindow" event=] with |embedderParent|, <var ignore=''>url</var>, <var ignore=''>target</var>, and |windowOpenDisposition|.</ins>
+
+For [=completely finish loading=]:
+
+5. Otherwise, if container is non-null, then queue an element task on the DOM manipulation task source given container to fire an event named load at container.
+
+6. <ins>If <var ignore=''>document</var>'s [=node navigable=]'s [=embedderParent=] is {{HTMLControlledFrameElement}}, then [=Fire a "contentload" event=].</ins>
+
+#### [[Console]] #### {#events-monkey-patches-console}
+
+For [=Logger=]:
+
+1. Otherwise, perform [=Printer=](|logLevel|, [=Formatter=](|args|)).
+
+1. <ins>[=Fire a "consolemessage" event=] with |logLevel|, [=Formatter=](|args|).</ins>
+
+^ patch permissions
+^ patch load
+^ patch zoom/size
+
 
 
 <!-- ====================================================================== -->
