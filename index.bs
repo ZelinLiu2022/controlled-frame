@@ -109,6 +109,8 @@ spec: html; urlPrefix: https://html.spec.whatwg.org/multipage/
             text: document state; url: she-document-state
             text: get all used history steps; url: getting-all-used-history-steps
             text: reload; url: reload
+            text: loading a document; url: loading-a-document
+            text: navigable; for:navigation params; url: navigation-params-navigable
             for: session history entry
                 text: step; url: she-step
                 text: URL; url: she-url
@@ -1661,8 +1663,6 @@ To <dfn data-lt='fire a "contentload" event'>fire a {{ContentLoadEvent}}</dfn> |
 
 1. Dispatch |e| at |target|.
 
-<span class=XXX>TODO:^ https://html.spec.whatwg.org/multipage/document-lifecycle.html#loading-documents</span>
-
 </div>
 
 <!-- ====================================================================== -->
@@ -1716,8 +1716,6 @@ To fire a {{LoadAbortEvent}} |e| given <{controlledframe}> element |target|, a U
 1. Set |e|'s {{LoadAbortEvent/loadAbortInfo}} to |info|.
 
 1. Dispatch |e| at |target|.
-
-<span class=XXX>TODO:^</span>
 
 </div>
 
@@ -1779,7 +1777,7 @@ dictionary LoadStartEventInit: EventInit {
 
 <div algorithm=dispatch-loadstart>
 
-To fire a {{LoadStartEvent}} |e| given <{controlledframe}> element |target|, a USVString |url|, and a boolean |isTopLevel|, run the following steps:
+To <dfn data-lt='fire a "loadstart" event'>fire a {{LoadStartEvent}}</dfn> |e| given <{controlledframe}> element |target|, a USVString |url|, and a boolean |isTopLevel|, run the following steps:
 
 1. Let |info| be a new {{LoadInfo}} with the following attributes:
 
@@ -1792,8 +1790,6 @@ To fire a {{LoadStartEvent}} |e| given <{controlledframe}> element |target|, a U
 1. Set |e|'s {{LoadStartEvent/loadInfo}} to |info|.
 
 1. Dispatch |e| at |target|.
-
-<span class=XXX>TODO:</span>
 
 </div>
 
@@ -1859,9 +1855,15 @@ For [=window open steps=]:
 
 16. <ins>If |embedderParent| is a {{HTMLControlledFrameElement}}:</ins>
 
-      1. <ins>Let |windowOpenDisposition| be the result of [=get window open disposition=] ^</ins>
+      1. <ins>Let |windowOpenDisposition| be the result of [=get window open disposition=].</ins>
       
       1. <ins>[=Fire a "newwindow" event=] with |embedderParent|, <var ignore=''>url</var>, <var ignore=''>target</var>, and |windowOpenDisposition|.</ins>
+
+For [=load a document=]:
+
+1. <ins>Let |embedderParent| be the [=embedderParent=] of the <var ignore=''>navigationParams</var>'s [=navigation params/navigable=]'s [=top-level traversable=].</ins>
+
+2. <ins>If |embedderParent| is {{HTMLControlledFrameElement}}, then |embedderParent| must [=fire a "loadstart" event=].</ins>
 
 For [=completely finish loading=]:
 
@@ -1878,7 +1880,8 @@ For [=Logger=]:
 1. <ins>[=Fire a "consolemessage" event=] with |logLevel|, [=Formatter=](|args|).</ins>
 
 ^ patch permissions
-^ patch load
+^ patch load+
+^ loadredirect
 ^ patch zoom/size
 
 
